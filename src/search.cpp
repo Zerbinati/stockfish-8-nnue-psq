@@ -25,6 +25,7 @@
 #include <iostream>
 #include <sstream>
 
+#include "book.h"
 #include "evaluate.h"
 #include "util.h"
 #include "movegen.h"
@@ -253,7 +254,7 @@ template uint64_t Search::perft<true>(Position&, Depth);
 /// the UCI 'go' command. It searches from the root position and outputs the "bestmove".
 
 void MainThread::search() {
-
+static PolyglotBook book; // Defined static to initialize the PRNG only once
   Color us = rootPos.side_to_move();
   Time.init(Limits, us, rootPos.game_ply());
 
@@ -270,6 +271,16 @@ void MainThread::search() {
   }
   else
   {
+      if (Options["OwnBook"] && !Limits.infinite && !Limits.mate)
+      {
+          Move bookMove = book.probe(rootPos, Options["Book File"], Options["Best Book Line"]);
+
+          if (bookMove && std::count(rootMoves.begin(), rootMoves.end(), bookMove))
+          {
+              std::swap(rootMoves[0], *std::find(rootMoves.begin(), rootMoves.end(), bookMove));
+              goto finalize;
+          }
+      }
       for (Thread* th : Threads)
           if (th != this)
               th->start_searching();
@@ -282,6 +293,7 @@ void MainThread::search() {
   if (Limits.npmsec)
       Time.availableNodes += Limits.inc[us] - Threads.nodes_searched();
 
+finalize:
   // When we reach the maximum depth, we can arrive here without a raise of
   // Signals.stop. However, if we are pondering or in an infinite search,
   // the UCI protocol states that we shouldn't print the best move before the
